@@ -59,7 +59,7 @@ class MarketplaceAutomation:
         # Dismiss common Facebook popups
         await self._dismiss_popups()
     
-    async def create_listing(self, title, description, price, category, condition, location, image_paths, delivery_method="Door pickup", group_names=None):
+    async def create_listing(self, title, description, price, category, condition, location, image_paths, delivery_method="Door pickup", group_names=None, boost_listing=False):
         """
         Create a Facebook Marketplace listing
 
@@ -73,6 +73,7 @@ class MarketplaceAutomation:
             image_paths: List of image file paths
             delivery_method: "Public meetup", "Door pickup", or "Door dropoff" (default: "Door pickup")
             group_names: List of group names to list in (optional, max 20)
+            boost_listing: Whether to enable boost listing (default: False)
 
         Returns:
             dict: {'success': bool, 'error': str or None}
@@ -94,6 +95,10 @@ class MarketplaceAutomation:
 
             if location:
                 await self._fill_location(location)
+
+            # Enable boost if requested (must be done BEFORE first Next click)
+            if boost_listing:
+                await self._toggle_boost_listing()
 
             # STEP 2: Click "Next" to go to delivery method page
             print("\n[STEP 1] Clicking Next to go to delivery page...")
@@ -141,10 +146,29 @@ class MarketplaceAutomation:
             await self.human.async_random_delay(1, 1.5)
 
             print(f"✓ Listing created successfully!\n")
+
+            # Navigate back to create listing page for next listing
+            print("Navigating back to create listing page for next listing...")
+            await self.human.async_random_delay(2, 3)  # Wait for confirmation page to load
+            await self.browser.navigate_to("https://www.facebook.com/marketplace/create/item")
+            await self.human.async_random_delay(2, 3)  # Wait for create page to load
+            await self._dismiss_popups()
+
             return {'success': True, 'error': None}
 
         except Exception as e:
             print(f"Error creating listing: {str(e)}")
+
+            # Try to navigate back to create listing page even on error
+            try:
+                print("Attempting to navigate back to create listing page after error...")
+                await self.human.async_random_delay(1, 2)
+                await self.browser.navigate_to("https://www.facebook.com/marketplace/create/item")
+                await self.human.async_random_delay(2, 3)
+                await self._dismiss_popups()
+            except:
+                pass  # Ignore navigation errors during error recovery
+
             return {'success': False, 'error': str(e)}
     
     async def _upload_images(self, image_paths):
@@ -541,7 +565,60 @@ class MarketplaceAutomation:
 
         except Exception as e:
             print(f"Warning: Error selecting groups: {str(e)}")
-    
+
+    async def _toggle_boost_listing(self):
+        """
+        Toggle boost listing switch (must be called BEFORE first Next click)
+        """
+        try:
+            print("Looking for boost listing toggle...")
+
+            # Find and click the boost switch
+            boost_toggled = await self.page.evaluate("""
+                () => {
+                    // Look for switch/checkbox with role="switch"
+                    const switches = Array.from(document.querySelectorAll('input[role="switch"], input[type="checkbox"][aria-checked]'));
+
+                    for (const switchEl of switches) {
+                        const ariaLabel = switchEl.getAttribute('aria-label') || '';
+                        const ariaChecked = switchEl.getAttribute('aria-checked') || '';
+
+                        // Look for boost-related labels or switches that are currently disabled/off
+                        // Facebook may use labels like "Disabled", "Off", or similar
+                        // We want to click it if it's currently off/disabled to turn it on
+                        if (ariaChecked === 'false' || ariaLabel.toLowerCase().includes('disabled')) {
+                            // Try to find parent container that might have boost-related text
+                            let parent = switchEl.closest('div[role="group"], label, div');
+                            if (parent) {
+                                const parentText = (parent.textContent || '').toLowerCase();
+                                // Look for boost, promote, or similar keywords
+                                if (parentText.includes('boost') || parentText.includes('promote')) {
+                                    switchEl.click();
+                                    return true;
+                                }
+                            }
+
+                            // If we can't find context, try clicking any visible switch that's currently off
+                            // (This is a fallback - boost is often the first/only switch on the create page)
+                            if (switchEl.offsetParent !== null && ariaChecked === 'false') {
+                                switchEl.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            """)
+
+            if boost_toggled:
+                print("✓ Boost listing enabled")
+                await self.human.async_random_delay(0.5, 0.8)
+            else:
+                print("Warning: Could not find boost listing toggle")
+
+        except Exception as e:
+            print(f"Warning: Error toggling boost listing: {str(e)}")
+
     async def _click_next_button(self):
         """Click the Next button"""
         clicked = await self.page.evaluate("""

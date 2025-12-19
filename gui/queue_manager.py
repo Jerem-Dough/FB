@@ -297,7 +297,8 @@ class QueueManager(ctk.CTkFrame):
                     item['location'],
                     item['images'],
                     item.get('delivery_method', 'Door pickup'),
-                    item.get('groups')
+                    item.get('groups'),
+                    item.get('boost_listing', False)
                 )
                 
                 # Update status based on result

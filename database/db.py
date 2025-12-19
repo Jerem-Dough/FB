@@ -81,6 +81,19 @@ class Database:
             cursor.execute("UPDATE queue SET delivery_method = 'Door pickup' WHERE delivery_method IS NULL")
             print("Added delivery_method and groups columns to queue table")
 
+        # Add boost_listing column if it doesn't exist
+        try:
+            cursor.execute("SELECT boost_listing FROM workflows LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE workflows ADD COLUMN boost_listing INTEGER DEFAULT 0")
+            print("Added boost_listing column to workflows table")
+
+        try:
+            cursor.execute("SELECT boost_listing FROM queue LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE queue ADD COLUMN boost_listing INTEGER DEFAULT 0")
+            print("Added boost_listing column to queue table")
+
         # Fix any NULL status values
         cursor.execute("UPDATE queue SET status = 'pending' WHERE status IS NULL")
 
@@ -88,7 +101,7 @@ class Database:
         conn.close()
     
     # Workflow operations
-    def create_workflow(self, name, title, descriptions, price, category, condition, location="", delivery_method="Door pickup", groups=None):
+    def create_workflow(self, name, title, descriptions, price, category, condition, location="", delivery_method="Door pickup", groups=None, boost_listing=False):
         """Create a new workflow template"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -98,9 +111,9 @@ class Database:
 
         try:
             cursor.execute("""
-                INSERT INTO workflows (name, title, descriptions, price, category, condition, location, delivery_method, groups, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (name, title, json.dumps(descriptions), price, category, condition, location, delivery_method, groups_json, now, now))
+                INSERT INTO workflows (name, title, descriptions, price, category, condition, location, delivery_method, groups, boost_listing, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, title, json.dumps(descriptions), price, category, condition, location, delivery_method, groups_json, 1 if boost_listing else 0, now, now))
             conn.commit()
             workflow_id = cursor.lastrowid
             return workflow_id
@@ -137,6 +150,10 @@ class Database:
             except (json.JSONDecodeError, TypeError):
                 groups = None
 
+            # Get boost_listing
+            boost_idx = columns.get('boost_listing')
+            boost_listing = bool(row[boost_idx]) if boost_idx is not None and len(row) > boost_idx and row[boost_idx] is not None else False
+
             return {
                 'id': row[0],
                 'name': row[1],
@@ -148,6 +165,7 @@ class Database:
                 'location': row[7],
                 'delivery_method': (row[delivery_idx] if delivery_idx is not None and len(row) > delivery_idx and row[delivery_idx] else 'Door pickup'),
                 'groups': groups,
+                'boost_listing': boost_listing,
                 'created_at': (row[created_idx] if created_idx is not None and len(row) > created_idx else None),
                 'updated_at': (row[updated_idx] if updated_idx is not None and len(row) > updated_idx else None)
             }
@@ -172,6 +190,9 @@ class Database:
         created_idx = columns.get('created_at')
         updated_idx = columns.get('updated_at')
 
+        # Get boost_listing index
+        boost_idx = columns.get('boost_listing')
+
         workflows = []
         for row in rows:
             # Safely parse groups
@@ -181,6 +202,9 @@ class Database:
                     groups = json.loads(row[groups_idx])
             except (json.JSONDecodeError, TypeError):
                 groups = None
+
+            # Get boost_listing
+            boost_listing = bool(row[boost_idx]) if boost_idx is not None and len(row) > boost_idx and row[boost_idx] is not None else False
 
             workflows.append({
                 'id': row[0],
@@ -193,12 +217,13 @@ class Database:
                 'location': row[7],
                 'delivery_method': (row[delivery_idx] if delivery_idx is not None and len(row) > delivery_idx and row[delivery_idx] else 'Door pickup'),
                 'groups': groups,
+                'boost_listing': boost_listing,
                 'created_at': (row[created_idx] if created_idx is not None and len(row) > created_idx else None),
                 'updated_at': (row[updated_idx] if updated_idx is not None and len(row) > updated_idx else None)
             })
         return workflows
     
-    def update_workflow(self, workflow_id, name, title, descriptions, price, category, condition, location="", delivery_method="Door pickup", groups=None):
+    def update_workflow(self, workflow_id, name, title, descriptions, price, category, condition, location="", delivery_method="Door pickup", groups=None, boost_listing=False):
         """Update an existing workflow"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -208,9 +233,9 @@ class Database:
 
         cursor.execute("""
             UPDATE workflows
-            SET name=?, title=?, descriptions=?, price=?, category=?, condition=?, location=?, delivery_method=?, groups=?, updated_at=?
+            SET name=?, title=?, descriptions=?, price=?, category=?, condition=?, location=?, delivery_method=?, groups=?, boost_listing=?, updated_at=?
             WHERE id=?
-        """, (name, title, json.dumps(descriptions), price, category, condition, location, delivery_method, groups_json, now, workflow_id))
+        """, (name, title, json.dumps(descriptions), price, category, condition, location, delivery_method, groups_json, 1 if boost_listing else 0, now, workflow_id))
         conn.commit()
         conn.close()
     
@@ -223,7 +248,7 @@ class Database:
         conn.close()
     
     # Queue operations
-    def add_to_queue(self, workflow_id, title, description, price, category, condition, location, images, delivery_method="Door pickup", groups=None):
+    def add_to_queue(self, workflow_id, title, description, price, category, condition, location, images, delivery_method="Door pickup", groups=None, boost_listing=False):
         """Add a listing to the posting queue"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -232,9 +257,9 @@ class Database:
         groups_json = json.dumps(groups) if groups else None
 
         cursor.execute("""
-            INSERT INTO queue (workflow_id, title, description, price, category, condition, location, images, delivery_method, groups, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (workflow_id, title, description, price, category, condition, location, json.dumps(images), delivery_method, groups_json, now))
+            INSERT INTO queue (workflow_id, title, description, price, category, condition, location, images, delivery_method, groups, boost_listing, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (workflow_id, title, description, price, category, condition, location, json.dumps(images), delivery_method, groups_json, 1 if boost_listing else 0, now))
         conn.commit()
         queue_id = cursor.lastrowid
         conn.close()
@@ -264,6 +289,7 @@ class Database:
             # Get indices safely
             delivery_idx = columns.get('delivery_method')
             groups_idx = columns.get('groups')
+            boost_idx = columns.get('boost_listing')
             status_idx = columns.get('status')
             created_idx = columns.get('created_at')
             posted_idx = columns.get('posted_at')
@@ -277,6 +303,9 @@ class Database:
             except (json.JSONDecodeError, TypeError):
                 groups = None
 
+            # Get boost_listing
+            boost_listing = bool(row[boost_idx]) if boost_idx is not None and len(row) > boost_idx and row[boost_idx] is not None else False
+
             items.append({
                 'id': row[0],
                 'workflow_id': row[1],
@@ -289,6 +318,7 @@ class Database:
                 'images': json.loads(row[8]),
                 'delivery_method': (row[delivery_idx] if delivery_idx is not None and len(row) > delivery_idx and row[delivery_idx] else 'Door pickup'),
                 'groups': groups,
+                'boost_listing': boost_listing,
                 'status': (row[status_idx] if status_idx is not None and len(row) > status_idx and row[status_idx] else 'pending'),
                 'created_at': (row[created_idx] if created_idx is not None and len(row) > created_idx else None),
                 'posted_at': (row[posted_idx] if posted_idx is not None and len(row) > posted_idx else None),

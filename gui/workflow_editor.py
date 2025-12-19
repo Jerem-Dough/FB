@@ -148,17 +148,27 @@ class WorkflowEditor(ctk.CTkFrame):
         self.groups_entry = ctk.CTkEntry(self.right_panel, width=400, placeholder_text="Group 1, Group 2, Group 3")
         self.groups_entry.grid(row=16, column=0, sticky="ew", pady=(0, 10))
 
+        # Boost Listing
+        self.boost_var = ctk.BooleanVar(value=False)
+        boost_checkbox = ctk.CTkCheckBox(
+            self.right_panel,
+            text="Enable Boost Listing (promoted/paid listing)",
+            variable=self.boost_var,
+            font=ctk.CTkFont(size=13)
+        )
+        boost_checkbox.grid(row=17, column=0, sticky="w", pady=(5, 10))
+
         # Descriptions section
         desc_header = ctk.CTkLabel(
             self.right_panel,
             text="Description Variations (2-3 recommended)",
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        desc_header.grid(row=17, column=0, sticky="w", pady=(20, 10))
+        desc_header.grid(row=18, column=0, sticky="w", pady=(20, 10))
 
         # Description list
         self.desc_frame = ctk.CTkFrame(self.right_panel)
-        self.desc_frame.grid(row=18, column=0, sticky="ew", pady=(0, 10))
+        self.desc_frame.grid(row=19, column=0, sticky="ew", pady=(0, 10))
         self.desc_frame.grid_columnconfigure(0, weight=1)
 
         # Add description button
@@ -168,7 +178,7 @@ class WorkflowEditor(ctk.CTkFrame):
             command=self.add_description_field,
             width=150
         )
-        self.add_desc_btn.grid(row=19, column=0, sticky="w", pady=5)
+        self.add_desc_btn.grid(row=20, column=0, sticky="w", pady=5)
 
         # Save button
         self.save_btn = ctk.CTkButton(
@@ -178,7 +188,7 @@ class WorkflowEditor(ctk.CTkFrame):
             font=ctk.CTkFont(size=14, weight="bold"),
             height=40
         )
-        self.save_btn.grid(row=20, column=0, sticky="ew", pady=(20, 10))
+        self.save_btn.grid(row=21, column=0, sticky="ew", pady=(20, 10))
 
         # Batch generate section
         batch_header = ctk.CTkLabel(
@@ -186,10 +196,10 @@ class WorkflowEditor(ctk.CTkFrame):
             text="Batch Generate Listings",
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        batch_header.grid(row=21, column=0, sticky="w", pady=(30, 10))
+        batch_header.grid(row=22, column=0, sticky="w", pady=(30, 10))
 
         batch_frame = ctk.CTkFrame(self.right_panel)
-        batch_frame.grid(row=22, column=0, sticky="ew", pady=5)
+        batch_frame.grid(row=23, column=0, sticky="ew", pady=5)
         batch_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(batch_frame, text="Images per listing:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -209,7 +219,7 @@ class WorkflowEditor(ctk.CTkFrame):
             font=ctk.CTkFont(size=14),
             height=40
         )
-        self.batch_btn.grid(row=23, column=0, sticky="ew", pady=10)
+        self.batch_btn.grid(row=24, column=0, sticky="ew", pady=10)
     
     def add_description_field(self):
         """Add a new description text box"""
@@ -256,6 +266,7 @@ class WorkflowEditor(ctk.CTkFrame):
         self.location_entry.delete(0, 'end')
         self.delivery_method_var.set("Door pickup")
         self.groups_entry.delete(0, 'end')
+        self.boost_var.set(False)
 
         # Clear descriptions
         for desc in self.descriptions:
@@ -293,6 +304,7 @@ class WorkflowEditor(ctk.CTkFrame):
         condition = self.condition_var.get()
         location = self.location_entry.get().strip()
         delivery_method = self.delivery_method_var.get()
+        boost_listing = self.boost_var.get()
 
         # Parse groups (comma-separated)
         groups_str = self.groups_entry.get().strip()
@@ -302,13 +314,13 @@ class WorkflowEditor(ctk.CTkFrame):
             # Update existing
             self.db.update_workflow(
                 self.current_workflow['id'],
-                name, title, desc_list, price, category, condition, location, delivery_method, groups
+                name, title, desc_list, price, category, condition, location, delivery_method, groups, boost_listing
             )
             messagebox.showinfo("Success", "Workflow updated successfully!")
         else:
             # Create new
             workflow_id = self.db.create_workflow(
-                name, title, desc_list, price, category, condition, location, delivery_method, groups
+                name, title, desc_list, price, category, condition, location, delivery_method, groups, boost_listing
             )
             if workflow_id:
                 messagebox.showinfo("Success", "Workflow created successfully!")
@@ -360,7 +372,8 @@ class WorkflowEditor(ctk.CTkFrame):
                     self.current_workflow['condition'],
                     self.current_workflow['location'],
                     self.current_workflow.get('delivery_method', 'Door pickup'),
-                    self.current_workflow.get('groups')
+                    self.current_workflow.get('groups'),
+                    self.current_workflow.get('boost_listing', False)
                 )
                 dialog.destroy()
                 self.refresh_workflow_list()
@@ -376,7 +389,8 @@ class WorkflowEditor(ctk.CTkFrame):
                     self.current_workflow['condition'],
                     self.current_workflow['location'],
                     self.current_workflow.get('delivery_method', 'Door pickup'),
-                    self.current_workflow.get('groups')
+                    self.current_workflow.get('groups'),
+                    self.current_workflow.get('boost_listing', False)
                 )
                 if workflow_id:
                     dialog.destroy()
@@ -424,6 +438,8 @@ class WorkflowEditor(ctk.CTkFrame):
         self.groups_entry.delete(0, 'end')
         if workflow.get('groups'):
             self.groups_entry.insert(0, ', '.join(workflow['groups']))
+
+        self.boost_var.set(workflow.get('boost_listing', False))
 
         # Load descriptions
         for desc in self.descriptions:
@@ -514,7 +530,8 @@ class WorkflowEditor(ctk.CTkFrame):
                 self.current_workflow['location'],
                 listing_images,
                 self.current_workflow.get('delivery_method', 'Door pickup'),
-                self.current_workflow.get('groups')
+                self.current_workflow.get('groups'),
+                self.current_workflow.get('boost_listing', False)
             )
             generated += 1
         
