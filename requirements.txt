@@ -1,0 +1,12 @@
+# Facebook Marketplace Automation Tool
+# Python 3.8+ required
+
+# Browser automation
+playwright==1.49.1
+
+# GUI
+customtkinter==5.2.2
+pillow==11.0.0
+
+# Utilities
+python-dotenv==1.0.1
