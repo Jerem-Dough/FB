@@ -365,7 +365,10 @@ class MarketplaceAutomation:
         try:
             print(f"Looking for condition field to select: {condition}")
 
-            # STEP 1: Find and click the condition dropdown/selector
+            # Add delay to ensure page is fully loaded
+            await self.human.async_random_delay(0.5, 0.8)
+
+            # STRATEGY 1: JavaScript-based search for dropdown
             dropdown_opened = await self.page.evaluate("""
                 () => {
                     // Look for elements containing "Condition" text
@@ -376,19 +379,16 @@ class MarketplaceAutomation:
 
                         // Found an element with "Condition" text
                         if (text === 'Condition' || text.toLowerCase().includes('condition')) {
-                            // Try to find a clickable parent or sibling
-                            let clickTarget = el;
-
                             // Check if element itself is clickable
                             if (el.onclick || el.getAttribute('role') === 'button') {
                                 el.click();
                                 return true;
                             }
 
-                            // Try parent elements
+                            // Try parent elements (up to 8 levels)
                             let parent = el.parentElement;
                             let attempts = 0;
-                            while (parent && attempts < 5) {
+                            while (parent && attempts < 8) {
                                 const role = parent.getAttribute('role');
                                 const ariaLabel = (parent.getAttribute('aria-label') || '').toLowerCase();
 
@@ -410,18 +410,37 @@ class MarketplaceAutomation:
                 }
             """)
 
+            # STRATEGY 2: If Strategy 1 failed, try selector-based approach
+            if not dropdown_opened:
+                print("Strategy 1 failed, trying selector-based approach...")
+                condition_selectors = [
+                    'div[aria-label*="condition" i]',
+                    'div[aria-label*="Condition"]',
+                    '[role="combobox"][aria-label*="condition" i]',
+                ]
+
+                for selector in condition_selectors:
+                    try:
+                        element = await self.page.query_selector(selector)
+                        if element and await element.is_visible():
+                            await element.click()
+                            dropdown_opened = True
+                            print(f"✓ Opened dropdown with selector: {selector}")
+                            break
+                    except Exception as e:
+                        continue
+
             if dropdown_opened:
                 print("✓ Opened condition dropdown")
-                await self.human.async_random_delay(0.8, 1.2)
+                await self.human.async_random_delay(1.0, 1.5)  # Longer wait for dropdown to populate
             else:
-                print("WARNING: Could not find condition dropdown")
-                return
+                # Last resort: just try to click anything with the condition value
+                print("WARNING: Could not open dropdown, trying direct selection...")
 
             # STEP 2: Click the specific condition option from dropdown
             condition_selected = await self.page.evaluate(f"""
                 (conditionText) => {{
-                    // Wait a moment for dropdown to populate
-                    const allElements = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
+                    const allElements = Array.from(document.querySelectorAll('div, span, li, [role="option"], [role="menuitem"]'));
 
                     for (const el of allElements) {{
                         const text = (el.innerText || el.textContent || '').trim();
@@ -431,6 +450,7 @@ class MarketplaceAutomation:
                             // Make sure element is visible
                             if (el.offsetParent !== null) {{
                                 el.click();
+                                console.log('Clicked condition option:', text);
                                 return true;
                             }}
                         }}
@@ -443,11 +463,27 @@ class MarketplaceAutomation:
             if condition_selected:
                 print(f"✓ Selected condition: {condition}")
                 await self.human.async_random_delay(0.5, 0.8)
-            else:
-                print(f"WARNING: Could not select condition '{condition}' from dropdown, using default")
+                return
+
+            # STRATEGY 3: Final fallback - try Playwright's locator
+            print("Trying Playwright locator as final fallback...")
+            try:
+                # Try to find and click the condition text directly
+                condition_element = self.page.locator(f'text="{condition}"').first
+                if await condition_element.is_visible(timeout=3000):
+                    await condition_element.click()
+                    print(f"✓ Selected condition via locator: {condition}")
+                    await self.human.async_random_delay(0.5, 0.8)
+                    return
+            except Exception as e:
+                print(f"Locator fallback failed: {str(e)[:100]}")
+
+            # If we get here, condition selection completely failed
+            raise Exception(f"Failed to select condition '{condition}' - this is required for listing")
 
         except Exception as e:
-            print(f"WARNING: Error setting condition: {str(e)}")
+            # Re-raise the exception so the listing fails clearly
+            raise Exception(f"Error setting condition '{condition}': {str(e)}")
     
     async def _fill_description(self, description):
         """Fill in description - uses textarea element"""
