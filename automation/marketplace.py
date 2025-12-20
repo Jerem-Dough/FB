@@ -363,29 +363,91 @@ class MarketplaceAutomation:
     async def _select_condition(self, condition):
         """Select item condition"""
         try:
-            # Look for condition selector
-            condition_selectors = [
-                'div[aria-label*="condition" i]',
-                'span:has-text("Condition")',
-                'label:has-text("Condition")'
-            ]
-            
-            for selector in condition_selectors:
-                try:
-                    await self.page.click(selector, timeout=5000)
-                    await self.human.async_random_delay(0.5, 0.8)
+            print(f"Looking for condition field to select: {condition}")
 
-                    # Click the condition option
-                    await self.page.click(f'span:has-text("{condition}")', timeout=5000)
-                    await self.human.async_random_delay(0.3, 0.5)
-                    return
-                except:
-                    continue
-            
-            print(f"Warning: Could not set condition to {condition}, using default")
-            
+            # STEP 1: Find and click the condition dropdown/selector
+            dropdown_opened = await self.page.evaluate("""
+                () => {
+                    // Look for elements containing "Condition" text
+                    const allElements = Array.from(document.querySelectorAll('div, label, span'));
+
+                    for (const el of allElements) {
+                        const text = (el.innerText || el.textContent || '').trim();
+
+                        // Found an element with "Condition" text
+                        if (text === 'Condition' || text.toLowerCase().includes('condition')) {
+                            // Try to find a clickable parent or sibling
+                            let clickTarget = el;
+
+                            // Check if element itself is clickable
+                            if (el.onclick || el.getAttribute('role') === 'button') {
+                                el.click();
+                                return true;
+                            }
+
+                            // Try parent elements
+                            let parent = el.parentElement;
+                            let attempts = 0;
+                            while (parent && attempts < 5) {
+                                const role = parent.getAttribute('role');
+                                const ariaLabel = (parent.getAttribute('aria-label') || '').toLowerCase();
+
+                                if (role === 'button' || role === 'combobox' ||
+                                    ariaLabel.includes('condition') || parent.onclick) {
+                                    parent.click();
+                                    return true;
+                                }
+                                parent = parent.parentElement;
+                                attempts++;
+                            }
+
+                            // Try clicking the element itself as last resort
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """)
+
+            if dropdown_opened:
+                print("✓ Opened condition dropdown")
+                await self.human.async_random_delay(0.8, 1.2)
+            else:
+                print("WARNING: Could not find condition dropdown")
+                return
+
+            # STEP 2: Click the specific condition option from dropdown
+            condition_selected = await self.page.evaluate(f"""
+                (conditionText) => {{
+                    // Wait a moment for dropdown to populate
+                    const allElements = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
+
+                    for (const el of allElements) {{
+                        const text = (el.innerText || el.textContent || '').trim();
+
+                        // Exact match or contains the condition text
+                        if (text === conditionText || text.includes(conditionText)) {{
+                            // Make sure element is visible
+                            if (el.offsetParent !== null) {{
+                                el.click();
+                                return true;
+                            }}
+                        }}
+                    }}
+
+                    return false;
+                }}
+            """, condition)
+
+            if condition_selected:
+                print(f"✓ Selected condition: {condition}")
+                await self.human.async_random_delay(0.5, 0.8)
+            else:
+                print(f"WARNING: Could not select condition '{condition}' from dropdown, using default")
+
         except Exception as e:
-            print(f"Warning: Error setting condition: {str(e)}")
+            print(f"WARNING: Error setting condition: {str(e)}")
     
     async def _fill_description(self, description):
         """Fill in description - uses textarea element"""
