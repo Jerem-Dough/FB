@@ -583,26 +583,21 @@ class MarketplaceAutomation:
                         const ariaLabel = switchEl.getAttribute('aria-label') || '';
                         const ariaChecked = switchEl.getAttribute('aria-checked') || '';
 
-                        // Look for boost-related labels or switches that are currently disabled/off
-                        // Facebook may use labels like "Disabled", "Off", or similar
-                        // We want to click it if it's currently off/disabled to turn it on
+                        // Only proceed if switch is currently off
                         if (ariaChecked === 'false' || ariaLabel.toLowerCase().includes('disabled')) {
                             // Try to find parent container that might have boost-related text
                             let parent = switchEl.closest('div[role="group"], label, div');
                             if (parent) {
                                 const parentText = (parent.textContent || '').toLowerCase();
-                                // Look for boost, promote, or similar keywords
-                                if (parentText.includes('boost') || parentText.includes('promote')) {
-                                    switchEl.click();
-                                    return true;
+                                // ONLY click if we find boost/promote keywords - no fallback clicking
+                                if (parentText.includes('boost') || parentText.includes('promote') ||
+                                    parentText.includes('featured') || parentText.includes('sponsored')) {
+                                    // Make sure the switch is visible before clicking
+                                    if (switchEl.offsetParent !== null) {
+                                        switchEl.click();
+                                        return true;
+                                    }
                                 }
-                            }
-
-                            // If we can't find context, try clicking any visible switch that's currently off
-                            // (This is a fallback - boost is often the first/only switch on the create page)
-                            if (switchEl.offsetParent !== null && ariaChecked === 'false') {
-                                switchEl.click();
-                                return true;
                             }
                         }
                     }
@@ -614,7 +609,7 @@ class MarketplaceAutomation:
                 print("✓ Boost listing enabled")
                 await self.human.async_random_delay(0.5, 0.8)
             else:
-                print("Warning: Could not find boost listing toggle")
+                print("Warning: Could not find boost listing toggle (this is OK if boost isn't available)")
 
         except Exception as e:
             print(f"Warning: Error toggling boost listing: {str(e)}")
