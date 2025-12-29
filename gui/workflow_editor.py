@@ -124,7 +124,7 @@ class WorkflowEditor(ctk.CTkFrame):
         self.condition_menu = ctk.CTkOptionMenu(
             self.right_panel,
             variable=self.condition_var,
-            values=["New", "Used - Like New", "Used - Good", "Used - Fair"]
+            values=["New", "Used - Like new", "Used - good", "Used - fair"]
         )
         self.condition_menu.grid(row=10, column=0, sticky="w", pady=(0, 10))
         

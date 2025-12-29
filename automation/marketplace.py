@@ -18,7 +18,10 @@ class MarketplaceAutomation:
 
         print("Navigating to Facebook Marketplace...")
         await self.browser.navigate_to("https://www.facebook.com/marketplace/create/item")
-        await self.human.async_random_delay(3, 5)
+
+        # Give page more time to load and redirect if needed
+        print("Waiting for page to load...")
+        await self.human.async_random_delay(5, 7)
 
         # Check if we need to log in
         print("Checking if logged in...")
@@ -27,24 +30,36 @@ class MarketplaceAutomation:
 
         # Check for login page
         if "login" in current_url.lower() or "checkpoint" in current_url.lower():
-            print("\n" + "="*60)
-            print("NOT LOGGED IN - Please log in to Facebook")
-            print("="*60)
-            print("The browser window is now open.")
-            print("Please log in to Facebook manually in the browser window.")
-            print("The automation will wait for you to complete login...")
-            print("="*60 + "\n")
+            print("\n" + "="*70)
+            print("   FIRST TIME LOGIN REQUIRED - Please log in to Facebook")
+            print("="*70)
+            print("\nThe browser window is now open.")
+            print("\nPlease complete the following steps:")
+            print("  1. Enter your Facebook email/phone and password")
+            print("  2. Complete any 2FA or security checks")
+            print("  3. Wait for Facebook to fully log you in")
+            print("\nThe tool will automatically continue once you're logged in.")
+            print("You have up to 10 MINUTES to complete this process.")
+            print("="*70 + "\n")
 
-            # Wait for navigation away from login page (max 5 minutes)
+            # Wait for navigation away from login page (max 10 minutes for first login)
             try:
-                await self.page.wait_for_url(lambda url: "login" not in url.lower(), timeout=300000)
-                print("Login detected! Continuing...")
+                await self.page.wait_for_url(lambda url: "login" not in url.lower() and "checkpoint" not in url.lower(), timeout=600000)
+                print("\n" + "="*70)
+                print("   LOGIN SUCCESSFUL! Continuing to Marketplace...")
+                print("="*70 + "\n")
+
+                # Give Facebook time to fully initialize the session
+                await self.human.async_random_delay(3, 5)
 
                 # Navigate to marketplace again after login
+                print("Navigating to Marketplace create page...")
                 await self.browser.navigate_to("https://www.facebook.com/marketplace/create/item")
-                await self.human.async_random_delay(3, 5)
+                await self.human.async_random_delay(5, 7)
             except Exception as e:
-                raise Exception("Login timeout - please log in within 5 minutes")
+                raise Exception("Login timeout - please complete login within 10 minutes")
+        else:
+            print("✓ Already logged in! Proceeding with quick start...")
 
         # Verify we're on the right page
         final_url = self.page.url
@@ -68,7 +83,7 @@ class MarketplaceAutomation:
             description: Listing description
             price: Price as float
             category: Category string
-            condition: "New", "Used - Like New", "Used - Good", "Used - Fair"
+            condition: "New", "Used - Like new", "Used - good", "Used - fair"
             location: Location string
             image_paths: List of image file paths
             delivery_method: "Public meetup", "Door pickup", or "Door dropoff" (default: "Door pickup")
@@ -215,8 +230,10 @@ class MarketplaceAutomation:
             aria_label = await inp.get_attribute('aria-label') or ''
             placeholder = await inp.get_attribute('placeholder') or ''
             if is_visible and 'search' not in aria_label.lower() and 'search' not in placeholder.lower():
-                await inp.fill("")
-                await self.human.human_type(self.page, 'input[type="text"]', title)
+                await inp.click()
+                await asyncio.sleep(0.1)
+                await inp.fill("")  # Clear any existing text
+                await inp.fill(title)  # Fast fill instead of slow typing
                 print("✓ Title entered")
                 return
         raise Exception("Could not find title input field")
@@ -361,128 +378,114 @@ class MarketplaceAutomation:
             raise Exception(f"Error setting category: {str(e)}")
     
     async def _select_condition(self, condition):
-        """Select item condition"""
+        """Select item condition using keyboard navigation"""
         try:
             print(f"Looking for condition field to select: {condition}")
 
-            # Add delay to ensure page is fully loaded
-            await self.human.async_random_delay(0.5, 0.8)
+            # Map condition to number of arrow key presses
+            condition_map = {
+                "New": 1,
+                "Used - Like new": 2,
+                "Used - good": 3,
+                "Used - fair": 4
+            }
 
-            # STRATEGY 1: JavaScript-based search for dropdown
-            dropdown_opened = await self.page.evaluate("""
+            if condition not in condition_map:
+                raise Exception(f"Invalid condition: {condition}. Must be one of: {list(condition_map.keys())}")
+
+            arrow_presses = condition_map[condition]
+
+            # Wait for form to load
+            await self.human.async_random_delay(1.5, 2.0)
+
+            # Find the condition dropdown div using JavaScript, but get its selector
+            dropdown_selector = await self.page.evaluate("""
                 () => {
-                    // Look for elements containing "Condition" text
-                    const allElements = Array.from(document.querySelectorAll('div, label, span'));
+                    // Find the "Condition" label span
+                    const allSpans = Array.from(document.querySelectorAll('span'));
+                    let conditionSpan = null;
 
-                    for (const el of allElements) {
-                        const text = (el.innerText || el.textContent || '').trim();
-
-                        // Found an element with "Condition" text
-                        if (text === 'Condition' || text.toLowerCase().includes('condition')) {
-                            // Check if element itself is clickable
-                            if (el.onclick || el.getAttribute('role') === 'button') {
-                                el.click();
-                                return true;
-                            }
-
-                            // Try parent elements (up to 8 levels)
-                            let parent = el.parentElement;
-                            let attempts = 0;
-                            while (parent && attempts < 8) {
-                                const role = parent.getAttribute('role');
-                                const ariaLabel = (parent.getAttribute('aria-label') || '').toLowerCase();
-
-                                if (role === 'button' || role === 'combobox' ||
-                                    ariaLabel.includes('condition') || parent.onclick) {
-                                    parent.click();
-                                    return true;
-                                }
-                                parent = parent.parentElement;
-                                attempts++;
-                            }
-
-                            // Try clicking the element itself as last resort
-                            el.click();
-                            return true;
+                    for (const span of allSpans) {
+                        const text = (span.innerText || span.textContent || '').trim();
+                        if (text === 'Condition') {
+                            conditionSpan = span;
+                            break;
                         }
                     }
-                    return false;
+
+                    if (!conditionSpan) {
+                        return null;
+                    }
+
+                    // Find the next sibling div with tabindex (this is the dropdown button)
+                    let sibling = conditionSpan.nextElementSibling;
+                    while (sibling) {
+                        if (sibling.tagName === 'DIV' && sibling.hasAttribute('tabindex')) {
+                            // Return the ID if it has one, otherwise mark it
+                            if (sibling.id) {
+                                return '#' + sibling.id;
+                            } else {
+                                // Add a temporary ID for selection
+                                sibling.setAttribute('data-condition-dropdown', 'true');
+                                return '[data-condition-dropdown="true"]';
+                            }
+                        }
+                        sibling = sibling.nextElementSibling;
+                    }
+
+                    // If not found as sibling, search in parent
+                    let parent = conditionSpan.parentElement;
+                    let attempts = 0;
+                    while (parent && attempts < 5) {
+                        const divWithTabindex = parent.querySelector('div[tabindex]');
+                        if (divWithTabindex) {
+                            if (divWithTabindex.id) {
+                                return '#' + divWithTabindex.id;
+                            } else {
+                                divWithTabindex.setAttribute('data-condition-dropdown', 'true');
+                                return '[data-condition-dropdown="true"]';
+                            }
+                        }
+                        parent = parent.parentElement;
+                        attempts++;
+                    }
+
+                    return null;
                 }
             """)
 
-            # STRATEGY 2: If Strategy 1 failed, try selector-based approach
-            if not dropdown_opened:
-                print("Strategy 1 failed, trying selector-based approach...")
-                condition_selectors = [
-                    'div[aria-label*="condition" i]',
-                    'div[aria-label*="Condition"]',
-                    '[role="combobox"][aria-label*="condition" i]',
-                ]
+            if not dropdown_selector:
+                raise Exception("Could not find condition dropdown element")
 
-                for selector in condition_selectors:
-                    try:
-                        element = await self.page.query_selector(selector)
-                        if element and await element.is_visible():
-                            await element.click()
-                            dropdown_opened = True
-                            print(f"✓ Opened dropdown with selector: {selector}")
-                            break
-                    except Exception as e:
-                        continue
+            print(f"Found condition dropdown: {dropdown_selector}")
 
-            if dropdown_opened:
-                print("✓ Opened condition dropdown")
-                await self.human.async_random_delay(1.0, 1.5)  # Longer wait for dropdown to populate
-            else:
-                # Last resort: just try to click anything with the condition value
-                print("WARNING: Could not open dropdown, trying direct selection...")
+            # Use Playwright to click the dropdown (this properly focuses it)
+            dropdown_element = await self.page.wait_for_selector(dropdown_selector, timeout=5000)
+            if not dropdown_element:
+                raise Exception("Could not locate condition dropdown element")
 
-            # STEP 2: Click the specific condition option from dropdown
-            condition_selected = await self.page.evaluate(f"""
-                (conditionText) => {{
-                    const allElements = Array.from(document.querySelectorAll('div, span, li, [role="option"], [role="menuitem"]'));
+            # Scroll into view and click to focus
+            await dropdown_element.scroll_into_view_if_needed()
+            await self.human.async_random_delay(0.3, 0.5)
 
-                    for (const el of allElements) {{
-                        const text = (el.innerText || el.textContent || '').trim();
+            # Click the element to open dropdown and focus it
+            await dropdown_element.click()
+            print("✓ Clicked condition dropdown")
+            await self.human.async_random_delay(0.8, 1.2)  # Wait for dropdown menu to appear
 
-                        // Exact match or contains the condition text
-                        if (text === conditionText || text.includes(conditionText)) {{
-                            // Make sure element is visible
-                            if (el.offsetParent !== null) {{
-                                el.click();
-                                console.log('Clicked condition option:', text);
-                                return true;
-                            }}
-                        }}
-                    }}
+            # Use keyboard navigation: press down arrow N times, then Enter
+            print(f"Pressing down arrow {arrow_presses} time(s) for: {condition}")
+            for i in range(arrow_presses):
+                await self.page.keyboard.press("ArrowDown")
+                print(f"  Pressed ArrowDown {i+1}/{arrow_presses}")
+                await self.human.async_random_delay(0.2, 0.4)
 
-                    return false;
-                }}
-            """, condition)
-
-            if condition_selected:
-                print(f"✓ Selected condition: {condition}")
-                await self.human.async_random_delay(0.5, 0.8)
-                return
-
-            # STRATEGY 3: Final fallback - try Playwright's locator
-            print("Trying Playwright locator as final fallback...")
-            try:
-                # Try to find and click the condition text directly
-                condition_element = self.page.locator(f'text="{condition}"').first
-                if await condition_element.is_visible(timeout=3000):
-                    await condition_element.click()
-                    print(f"✓ Selected condition via locator: {condition}")
-                    await self.human.async_random_delay(0.5, 0.8)
-                    return
-            except Exception as e:
-                print(f"Locator fallback failed: {str(e)[:100]}")
-
-            # If we get here, condition selection completely failed
-            raise Exception(f"Failed to select condition '{condition}' - this is required for listing")
+            # Press Enter to select
+            await self.page.keyboard.press("Enter")
+            print(f"✓ Pressed Enter to select condition: {condition}")
+            await self.human.async_random_delay(0.5, 0.8)
 
         except Exception as e:
-            # Re-raise the exception so the listing fails clearly
             raise Exception(f"Error setting condition '{condition}': {str(e)}")
     
     async def _fill_description(self, description):
@@ -494,10 +497,8 @@ class MarketplaceAutomation:
             if is_visible:
                 await ta.click()
                 await asyncio.sleep(0.2)
-                await ta.fill("")
-                for char in description:
-                    await ta.type(char)
-                    await asyncio.sleep(random.uniform(0.01, 0.03))
+                await ta.fill("")  # Clear any existing text
+                await ta.fill(description)  # Fast fill instead of slow character-by-character typing
                 print("✓ Description entered")
                 return
 
